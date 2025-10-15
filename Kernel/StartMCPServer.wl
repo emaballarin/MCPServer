@@ -13,6 +13,7 @@ Needs[ "Wolfram`Chatbook`" -> "cb`" ];
 (*Configuration*)
 $protocolVersion = "2024-11-05";
 $toolWarmupDelay = 5; (* seconds *)
+$parentMonitorInterval = 2; (* seconds - check if parent process is alive *)
 
 $logTimeStamp := DateString[
     {
@@ -69,6 +70,11 @@ startMCPServer[ obj_MCPServerObject ] := Enclose[
         promptLookup = ConfirmBy[ makePromptLookup @ obj[ "PromptData" ], AssociationQ, "PromptLookup" ];
         init         = ConfirmBy[ initResponse @ obj, AssociationQ, "InitResponse" ];
 
+        (* Start background task to monitor parent process *)
+        If[ Or[ $OperatingSystem === "MacOSX", $OperatingSystem === "Unix" ],
+            startParentMonitor[ ]
+        ];
+
         Block[
             {
                 $initResult   = init,
@@ -79,15 +85,12 @@ startMCPServer[ obj_MCPServerObject ] := Enclose[
                 $logFile      = logFile
             },
             While[ True,
-                If[
-                    And[
-                        Or[ $OperatingSystem === "MacOSX", $OperatingSystem === "Unix" ],
-                        $ParentProcessID === 1
-                    ],
+                response = catchAlways @ processRequest[ ];
+                If[ response === EndOfFile,
+                    (* stdin closed, parent process likely died *)
                     Exit[0]
                 ];
-                response = catchAlways @ processRequest[ ];
-                If[ response =!= EndOfFile, writeLog[ "Response" -> response ] ];
+                writeLog[ "Response" -> response ];
                 If[ AssociationQ @ response,
                     WriteLine[ "stdout", Developer`WriteRawJSONString[ response, "Compact" -> True ] ];
                     startToolWarmup @ $toolList,
@@ -122,6 +125,28 @@ startToolWarmup[ tools_ ] := (
 );
 
 startToolWarmup // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*startParentMonitor*)
+startParentMonitor // beginDefinition;
+
+startParentMonitor[ ] := (
+    debugPrint[ "Starting parent process monitor" ];
+    $parentMonitorTask = SessionSubmit @ ScheduledTask[
+        If[
+            And[
+                Or[ $OperatingSystem === "MacOSX", $OperatingSystem === "Unix" ],
+                $ParentProcessID === 1
+            ],
+            debugPrint[ "Parent process died (PID=1), exiting" ];
+            Exit[0]
+        ],
+        $parentMonitorInterval
+    ]
+);
+
+startParentMonitor // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)

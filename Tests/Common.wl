@@ -3,10 +3,11 @@
 BeginPackage[ "Wolfram`MCPServerTests`" ];
 
 (* :!CodeAnalysis::BeginBlock:: *)
-
-HoldComplete[
-    `$TestDefinitionsLoaded
-];
+`$BuiltPaclet;
+`$TestDefinitionsLoaded = True;
+`conditionalTest;
+`skipIfGitHubActions;
+`skipIfScript;
 
 Begin[ "`Private`" ];
 
@@ -14,6 +15,7 @@ Begin[ "`Private`" ];
 (* ::Section::Closed:: *)
 (*Initialization*)
 Wolfram`PacletCICD`$Debug = True;
+LLMConfiguration; (* Trigger autoload for LLMFunctions paclet *)
 
 Off[ General::shdw           ];
 Off[ PacletInstall::samevers ];
@@ -27,6 +29,31 @@ Needs[ "Wolfram`PacletCICD`" -> "cicd`" ];
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
 (*Definitions*)
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*conditionalTest*)
+conditionalTest // Attributes = { HoldAllComplete };
+
+conditionalTest[ condition_ ] :=
+    Function[ test, conditionalTest[ condition, test ], HoldAllComplete ];
+
+conditionalTest[ condition_, test: VerificationTest[ ___, TestID -> id_String, ___ ] ] :=
+    If[ condition,
+        test,
+        cicd`ConsoleLog @ SequenceForm[ "\tSkipping test: ", id ]
+    ];
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*skipIfGitHubActions*)
+skipIfGitHubActions = conditionalTest @ Not @ StringQ @ Environment[ "GITHUB_ACTIONS" ];
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*skipIfScript*)
+(* Skip tests when running as a wolframscript (subprocess I/O doesn't work reliably in that context) *)
+skipIfScript = conditionalTest @ Not @ MatchQ[ $ScriptCommandLine, { __String } ];
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -54,6 +81,12 @@ $sourceDirectory = DirectoryName[ $InputFileName, 2 ];
 $buildDirectory  = FileNameJoin @ { $sourceDirectory, "build", "Wolfram__MCPServer" };
 $pacletDirectory = Quiet @ SelectFirst[ { $buildDirectory, $sourceDirectory }, PacletObjectQ @* PacletObject @* File ];
 
+$BuiltPaclet = $pacletDirectory === $buildDirectory;
+
+If[ ! $BuiltPaclet,
+    cicd`ConsoleWarning[ "Running tests on source directory instead of built paclet" ]
+];
+
 $$rules = (Rule|RuleDelayed)[ _, _ ]..;
 
 (* ::**************************************************************************************************************:: *)
@@ -63,9 +96,9 @@ If[ ! DirectoryQ @ $pacletDirectory, abort[ "Paclet directory ", $pacletDirector
 Quiet @ PacletDirectoryUnload @ $sourceDirectory;
 PacletDataRebuild[ ];
 PacletDirectoryLoad @ $pacletDirectory;
-Get[ "Wolfram`MCPServer`" ];
+Quiet[ Get[ "Wolfram`MCPServer`" ], ClearAll::clloc ];
 If[ ! MemberQ[ $LoadedFiles, FileNameJoin @ { $pacletDirectory, "Kernel", "64Bit", "MCPServer.mx" } ],
-    abort[ "Paclet MX file was not loaded!" ]
+    cicd`ConsoleWarning[ "Paclet MX file was not loaded" ]
 ];
 
 (* ::**************************************************************************************************************:: *)

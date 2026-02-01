@@ -4,7 +4,6 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `$catchTopTag;
 `$cloudNotebooks;
 `$debug;
-`$debugData;
 `$defaultMCPServer;
 `$imagePath;
 `$objectVersion;
@@ -30,7 +29,9 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `fileNameJoin;
 `fileQ;
 `getLLMKitInfo;
+`getWolframCommand;
 `importResourceFunction;
+`initializeVectorDatabases;
 `llmKitSubscribedQ;
 `makeMCPServerObjectBoxes;
 `mcpServerDirectory;
@@ -41,11 +42,31 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `messagePrint;
 `readRawJSONFile;
 `readWXFFile;
+`relatedDocumentation;
+`relatedWolframAlphaResults;
+`relatedWolframContext;
 `throwFailure;
 `throwInternalFailure;
 `throwTop;
 `validateMCPServerObjectData;
 `writeRawJSONFile;
 `writeWXFFile;
+
+(* TOML support for Codex: *)
+`getMCPServers;
+`readTOMLFile;
+`removeMCPServer;
+`setMCPServer;
+`writeTOMLFile;
+
+(* Shared symbols with Tools subcontexts: *)
+`exportMarkdownString;
+
+(* Internal failure formatting: *)
+`$internalFailureLogPath;
+`extractFailureTag;
+`formatInternalFailureForMCP;
+`generateUniqueFailureFileName;
+`cleanupOldFailureLogs;
 
 EndPackage[ ];

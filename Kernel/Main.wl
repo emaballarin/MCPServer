@@ -5,10 +5,13 @@ BeginPackage[ "Wolfram`MCPServer`" ];
 (* ::**************************************************************************************************************:: *)
 (* ::Section::Closed:: *)
 (*Exported Symbols*)
+`$DefaultMCPPrompts;
 `$DefaultMCPServers;
 `$DefaultMCPTools;
 `$LastMCPServerFailure;
+`$SupportedMCPClients;
 `$LastMCPServerFailureText;
+`CodeInspectorToolFunction;
 `CreateMCPServer;
 `InstallMCPServer;
 `MCPServer;
@@ -16,6 +19,7 @@ BeginPackage[ "Wolfram`MCPServer`" ];
 `MCPServerObjectQ;
 `MCPServerObjects;
 `StartMCPServer;
+`TestReportToolFunction;
 `UninstallMCPServer;
 
 (* ::**************************************************************************************************************:: *)
@@ -52,7 +56,10 @@ $MCPServerContexts = {
     "Wolfram`MCPServer`Formatting`",
     "Wolfram`MCPServer`InstallMCPServer`",
     "Wolfram`MCPServer`MCPServerObject`",
+    "Wolfram`MCPServer`Prompts`",
     "Wolfram`MCPServer`StartMCPServer`",
+    "Wolfram`MCPServer`TOML`",
+    "Wolfram`MCPServer`Tools`",
     "Wolfram`MCPServer`Utilities`"
 };
 
@@ -70,10 +77,13 @@ $MCPServerSymbolNames = $MCPServerSymbolNames =
 (* ::Section::Closed:: *)
 (*Protected Symbols*)
 $MCPServerProtectedNames = "Wolfram`MCPServer`" <> # & /@ {
+    "$DefaultMCPPrompts",
     "$DefaultMCPServers",
     "$DefaultMCPTools",
     "$LastMCPServerFailure",
     "$LastMCPServerFailureText",
+    "$SupportedMCPClients",
+    "CodeInspectorToolFunction",
     "CreateMCPServer",
     "InstallMCPServer",
     "MCPServer",
@@ -81,6 +91,7 @@ $MCPServerProtectedNames = "Wolfram`MCPServer`" <> # & /@ {
     "MCPServerObjectQ",
     "MCPServerObjects",
     "StartMCPServer",
+    "TestReportToolFunction",
     "UninstallMCPServer"
 };
 

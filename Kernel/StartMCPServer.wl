@@ -14,6 +14,7 @@ Needs[ "Wolfram`Chatbook`" -> "cb`" ];
 $protocolVersion = "2024-11-05";
 $toolWarmupDelay = 5; (* seconds *)
 $parentMonitorInterval = 2; (* seconds - check if parent process is alive *)
+$clientName      = None;
 
 $logTimeStamp := DateString[
     {
@@ -29,11 +30,20 @@ $logTimeStamp := DateString[
 (* ::Section::Closed:: *)
 (*StartMCPServer*)
 StartMCPServer // beginDefinition;
-StartMCPServer[ ] := catchMine @ StartMCPServer @ Environment[ "MCP_SERVER_NAME" ];
-StartMCPServer[ $Failed ] := catchMine @ StartMCPServer @ $defaultMCPServer;
-StartMCPServer[ name_String ] := catchMine @ StartMCPServer @ MCPServerObject @ name;
-StartMCPServer[ obj_MCPServerObject ] := catchMine @ startMCPServer @ ensureMCPServerExists @ obj;
+StartMCPServer[ ] := stealthCatchTop @ StartMCPServer @ Environment[ "MCP_SERVER_NAME" ];
+StartMCPServer[ $Failed ] := stealthCatchTop @ StartMCPServer @ $defaultMCPServer;
+StartMCPServer[ name_String ] := stealthCatchTop @ StartMCPServer @ MCPServerObject @ name;
+StartMCPServer[ obj_MCPServerObject ] := stealthCatchTop @ startMCPServer @ ensureMCPServerExists @ obj;
 StartMCPServer // endExportedDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*stealthCatchTop*)
+(* A version of `catchTop` that doesn't set the message symbol or interfere with inner calls to `catchTop`. *)
+stealthCatchTop // beginDefinition;
+stealthCatchTop // Attributes = { HoldFirst };
+stealthCatchTop[ eval_ ] := Block[ { $catching = True }, Catch[ eval, $catchTopTag ] ];
+stealthCatchTop // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
@@ -93,7 +103,7 @@ startMCPServer[ obj_MCPServerObject ] := Enclose[
                 writeLog[ "Response" -> response ];
                 If[ AssociationQ @ response,
                     WriteLine[ "stdout", Developer`WriteRawJSONString[ response, "Compact" -> True ] ];
-                    startToolWarmup @ $toolList,
+                    If[ TrueQ @ $warmupTools, toolWarmup @ $toolList ],
                     Pause[ 0.1 ]
                 ]
             ]
@@ -156,29 +166,37 @@ toolWarmup[ ] := toolWarmup @ $toolList;
 toolWarmup[ tools_List ] := toolWarmup /@ tools;
 toolWarmup[ KeyValuePattern[ "name" -> name_String ] ] := toolWarmup @ name;
 toolWarmup[ "WolframContext" ] := toolWarmup @ { "WolframAlphaContext", "WolframLanguageContext" };
-toolWarmup[ name_String ] := toolWarmup0 @ name;
+toolWarmup[ "WolframLanguageContext"|"WolframAlphaContext" ] := preinstallVectorDatabases[ ];
 toolWarmup[ _ ] := Null;
 toolWarmup // endDefinition;
 
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*preinstallVectorDatabases*)
+preinstallVectorDatabases // beginDefinition;
 
-toolWarmup0 // beginDefinition;
+preinstallVectorDatabases[ ] := preinstallVectorDatabases[ ] = (
+    debugPrint[ "Warming up vector databases" ];
+    debugPrint[ "Warmed up vector databases: ", First @ AbsoluteTiming @ initializeVectorDatabases[ ] ]
+);
 
-toolWarmup0[ "WolframLanguageContext" ] := toolWarmup0[ "WolframLanguageContext" ] =
-    debugPrint[
-        "Warmed up WolframLanguageContext: ",
-        First @ AbsoluteTiming @ cb`RelatedDocumentation[ "test" ]
-    ];
+preinstallVectorDatabases // endDefinition;
 
-toolWarmup0[ "WolframAlphaContext" ] := toolWarmup0[ "WolframAlphaContext" ] =
-    debugPrint[
-        "Warmed up WolframAlphaContext: ",
-        First @ AbsoluteTiming @ cb`RelatedWolframAlphaQueries[ "test" ]
-    ];
+(* Test messages:
 
-toolWarmup0[ _ ] :=
-    Null;
+```
+{"method":"initialize","params":{"clientInfo":{"name":"test-client"},"protocolVersion":"2024-11-05"},"jsonrpc":"2.0","id":0}
+{"method":"tools/list","params":{},"jsonrpc":"2.0","id":1}
+{"method":"tools/call","params":{"name":"WolframContext","arguments":{"context":"What's the 123456789th prime?"}},"jsonrpc":"2.0","id":2}
+```
+*)
 
-toolWarmup0 // endDefinition;
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*initializeVectorDatabases*)
+initializeVectorDatabases // beginDefinition;
+initializeVectorDatabases[ ] := initializeVectorDatabases[ ] = cb`InstallVectorDatabases[ ];
+initializeVectorDatabases // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -191,10 +209,62 @@ makePromptLookup // endDefinition;
 (* ::Subsubsection::Closed:: *)
 (*makePromptData*)
 makePromptData // beginDefinition;
-makePromptData[ prompts: { ___Association } ] := KeyMap[ ToLowerCase ] @* KeyTake[ $promptKeys ] /@ prompts;
+makePromptData[ prompts: { ___Association } ] := makePromptData0 /@ prompts;
 makePromptData // endDefinition;
 
-$promptKeys = { "Name", "Description", "Arguments" };
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*makePromptData0*)
+makePromptData0 // beginDefinition;
+
+makePromptData0[ prompt_Association ] := Enclose[
+    Module[ { name, description, arguments },
+        name = ConfirmBy[
+            prompt[ "Name" ] /. _Missing :> prompt[ "name" ],
+            StringQ,
+            "Name"
+        ];
+        description = Replace[
+            prompt[ "Description" ] /. _Missing :> prompt[ "description" ],
+            Except[ _String ] :> ""
+        ];
+        arguments = Replace[
+            prompt[ "Arguments" ] /. _Missing :> prompt[ "arguments" ],
+            {
+                args: { ___Association } :> normalizeArguments @ args,
+                _ :> { }
+            }
+        ];
+        <|
+            "name"        -> name,
+            "description" -> description,
+            If[ Length @ arguments > 0, "arguments" -> arguments, Nothing ]
+        |>
+    ],
+    throwInternalFailure
+];
+
+makePromptData0 // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*normalizeArguments*)
+normalizeArguments // beginDefinition;
+normalizeArguments[ args: { ___Association } ] := normalizeArgument /@ args;
+normalizeArguments // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*normalizeArgument*)
+normalizeArgument // beginDefinition;
+
+normalizeArgument[ arg_Association ] := <|
+    "name"        -> (arg[ "Name" ] /. _Missing :> arg[ "name" ]),
+    "description" -> (arg[ "Description" ] /. _Missing :> arg[ "description" ]) /. _Missing :> "",
+    "required"    -> (arg[ "Required" ] /. _Missing :> arg[ "required" ]) /. _Missing :> False
+|>;
+
+normalizeArgument // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -207,13 +277,14 @@ processRequest[ ] :=
     Catch @ Enclose @ Module[ { stdin, message, method, id, req, response },
         stdin = InputString[ "" ];
         If[ stdin === "Quit", Exit[ 0 ] ];
-        If[ ! StringQ @ stdin, Throw @ EndOfFile ];
+        If[ ! StringQ @ stdin || StringTrim @ stdin === "", Throw @ EndOfFile ];
         message = ConfirmBy[ Developer`ReadRawJSONString @ stdin, AssociationQ ];
         writeLog[ "Request" -> message ];
         method = Lookup[ message, "method", None ];
         id = Lookup[ message, "id", Null ];
         req = <| "jsonrpc" -> "2.0", "id" -> id |>;
         response = catchAlways @ handleMethod[ method, message, req ];
+        If[ method === "tools/list", $warmupTools = True ];
         writeLog[ "Response" -> response ];
         If[ FailureQ @ response,
             <| req, "error" -> <| "code" -> -32603, "message" -> "Internal error" |> |>,
@@ -229,8 +300,15 @@ processRequest // endDefinition;
 (*handleMethod*)
 handleMethod // beginDefinition;
 
-handleMethod[ "initialize"    , msg_, req_ ] := <| req, "result" -> $initResult |>;
-handleMethod[ "ping"          , msg_, req_ ] := <| req, "result" -> { } |>;
+(* TODO: if the client supports roots, we should query for them and set directory appropriately
+   https://modelcontextprotocol.io/specification/2025-11-25/client/roots#protocol-messages *)
+handleMethod[ "initialize", msg_, req_ ] := (
+    $clientName = Replace[ msg[[ "params", "clientInfo", "name" ]], Except[ _String ] :> None ];
+    If[ ! stderrEnabledQ[ ], $Messages = { } ];
+    <| req, "result" -> $initResult |>
+);
+
+handleMethod[ "ping"          , msg_, req_ ] := <| req, "result" -> <| |> |>;
 handleMethod[ "resources/list", msg_, req_ ] := <| req, "result" -> <| "resources" -> { } |> |>;
 handleMethod[ "prompts/list"  , msg_, req_ ] := <| req, "result" -> <| "prompts" -> $promptList |> |>;
 handleMethod[ "prompts/get"   , msg_, req_ ] := <| req, "result" -> getPrompt[ msg, req ] |>;
@@ -276,16 +354,59 @@ getPrompt // endDefinition;
 (*makePromptContent*)
 makePromptContent // beginDefinition;
 
+(* Handle Function type - call the function with arguments *)
+makePromptContent[ KeyValuePattern[ { "Type" -> "Function", "Content" -> func_ } ], arguments_ ] :=
+    makePromptContent[ catchPromptFunction[ func, arguments ], arguments ];
+
+(* Handle Text type with Content *)
 makePromptContent[ KeyValuePattern[ "Content" -> content_ ], arguments_ ] :=
     makePromptContent[ content, arguments ];
 
+(* Handle string content *)
 makePromptContent[ content_String, arguments_ ] :=
     <| "type" -> "text", "text" -> content |>;
 
+(* Handle template content *)
 makePromptContent[ template_TemplateObject, arguments_Association ] :=
     makePromptContent[ TemplateApply[ template, arguments ], arguments ];
 
+(* Fallback - convert to string *)
+makePromptContent[ content_, arguments_ ] :=
+    <| "type" -> "text", "text" -> ToString @ content |>;
+
 makePromptContent // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*catchPromptFunction*)
+catchPromptFunction // beginDefinition;
+
+catchPromptFunction[ func_, arguments_ ] :=
+    With[ { result = Quiet @ catchAlways @ func @ arguments },
+        If[ FailureQ @ result,
+            formatPromptError @ result,
+            result
+        ]
+    ];
+
+catchPromptFunction // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*formatPromptError*)
+formatPromptError // beginDefinition;
+
+formatPromptError[ failure_Failure ] :=
+    With[ { msg = failure[ "Message" ] },
+        If[ StringQ @ msg,
+            "[Error] " <> msg,
+            "[Error] Failed to generate prompt content."
+        ]
+    ];
+
+formatPromptError[ _ ] := "[Error] Failed to generate prompt content.";
+
+formatPromptError // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -293,15 +414,26 @@ makePromptContent // endDefinition;
 evaluateTool // beginDefinition;
 
 evaluateTool[ msg_, req_ ] := Enclose[
-    Catch @ Module[ { params, toolName, args, result, string },
+    Catch @ Module[ { params, toolName, args, tool, result, string },
         Quiet @ TaskRemove @ $warmupTask; (* We're in a tool call, so it no longer makes sense to warm up tools *)
         writeLog[ "ToolCall" -> msg ];
         params = ConfirmBy[ Lookup[ msg, "params", <| |> ], AssociationQ ];
         toolName = ConfirmBy[ Lookup[ params, "name" ], StringQ ];
         args = Lookup[ params, "arguments", <| |> ];
-        result = catchAlways @ $llmTools[ toolName ][ args ];
+
+        (* Check if the tool exists before calling it *)
+        tool = Lookup[ $llmTools, toolName, Missing[ "UnknownTool", toolName ] ];
+        If[ MissingQ @ tool,
+            Throw @ <|
+                "content" -> { <| "type" -> "text", "text" -> "[Error] Unknown tool: " <> toolName |> },
+                "isError" -> True
+            |>
+        ];
+
+        result = stealthCatchTop @ tool @ args;
         If[ StringQ @ result[ "String" ], result = result[ "String" ] ];
         (* TODO: return multimodal content here when appropriate *)
+        (* TODO: convert internal errors to more useful text *)
         string = ConfirmBy[ safeString @ result, StringQ, "String" ];
         <|
             "content" -> { <| "type" -> "text", "text" -> string |> },
@@ -317,6 +449,13 @@ evaluateTool // endDefinition;
 (* ::Subsubsection::Closed:: *)
 (*safeString*)
 safeString // beginDefinition;
+
+(* Special handling for internal failures - format cleanly for MCP output *)
+safeString[ failure: Failure[ "MCPServer::Internal" | "General::ChatbookInternal", _ ] ] :=
+    With[ { formatted = formatInternalFailureForMCP @ failure },
+        formatted /; StringQ @ formatted
+    ];
+
 safeString[ failure_Failure ] := With[ { s = failure[ "Message" ] }, "[Error] " <> safeString @ s /; StringQ @ s ];
 safeString[ arg_ ] := convertPUACharacters @ ToString @ Unevaluated @ arg;
 safeString // endDefinition;
@@ -341,23 +480,32 @@ toPrintableASCII // endDefinition;
 (* ::Subsection::Closed:: *)
 (*superQuiet*)
 (* Nothing can be written to stdout while running as an MCP server, so we aggressively suppress output. *)
-(* TODO: add message handler to log messages to a file *)
 superQuiet // beginDefinition;
 superQuiet // Attributes = { HoldFirst };
-(* :!CodeAnalysis::BeginBlock:: *)
-(* :!CodeAnalysis::Disable::SuspiciousSessionSymbol:: *)
+
 superQuiet[ eval_ ] :=
     Block[
         {
+            (* Prevent progress reporting from writing excessive updates to stdout/stderr: *)
             $ProgressReporting = False,
-            Print              = Null &,
-            PrintTemporary     = Null &,
-            $Messages          = Streams[ "stderr" ]
+            (* Redirect both $Output and $Messages to stderr to keep stdout clean for MCP: *)
+            $Messages = Streams[ "stderr" ],
+            $Output   = Streams[ "stderr" ]
         },
-        eval
+        (* We use a veto handler to prevent print output from being written to stdout/stderr.
+           We do this instead of redefining Print as a local symbol in Block because we need to let the
+           WL evaluator tool capture and include print outputs in the tool call response. *)
+        Internal`HandlerBlock[ { "Wolfram.System.Print.Veto", False & }, eval ]
     ];
-(* :!CodeAnalysis::EndBlock:: *)
+
 superQuiet // endDefinition;
+
+(* TODO:
+  - We should OpenWrite a log file in `FileNameJoin @ { $UserBaseDirectory, "Logs", "MCPServer", "Output", file }`
+  - We should redirect both $Output and $Messages to the log file
+  - Also catch and redirect explicit Write/WriteString/BinaryWrite calls that try to write to stdout/stderr?
+  - We need actual tests of the running MCP server via StartProcess/WriteString/ReadString
+*)
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
@@ -428,13 +576,26 @@ writeLog // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
+(*stderrEnabledQ*)
+(* stderr output causes issues with several clients, so we disable it unless we know it's safe to use *)
+stderrEnabledQ // beginDefinition;
+stderrEnabledQ[ ] := stderrEnabledQ @ $clientName;
+stderrEnabledQ[ "claude-code" ] := True;
+stderrEnabledQ[ "claude-ai" ] := True;
+stderrEnabledQ[ _ ] := False;
+stderrEnabledQ // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
 (*writeError*)
 writeError // beginDefinition;
 
-writeError[ args___ ] :=
+writeError[ args___ ] /; stderrEnabledQ[ ] :=
     With[ { time = $logTimeStamp },
         WriteLine[ "stderr", sequenceString[ time, " [Wolfram/MCPServer] [error] ", args ] ]
     ];
+
+writeError[ ___ ] := Null;
 
 writeError // endDefinition;
 
@@ -450,10 +611,12 @@ debugEcho // endDefinition;
 (*debugPrint*)
 debugPrint // beginDefinition;
 
-debugPrint[ args___ ] :=
+debugPrint[ args___ ] /; stderrEnabledQ[ ] :=
     With[ { time = $logTimeStamp },
         WriteLine[ "stderr", sequenceString[ time, " [Wolfram/MCPServer] [info] ", args ] ]
     ];
+
+debugPrint[ ___ ] := Null;
 
 debugPrint // endDefinition;
 

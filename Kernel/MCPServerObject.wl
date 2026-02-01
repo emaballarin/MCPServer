@@ -108,6 +108,7 @@ validateLLMEvaluator // endDefinition;
 
 validateLLMEvaluator0 // beginDefinition;
 validateLLMEvaluator0[ "Tools", tools_ ] := validateTools @ tools;
+validateLLMEvaluator0[ "MCPPrompts", prompts_ ] := validateMCPPrompts @ prompts;
 validateLLMEvaluator0[ key_String, value_ ] := value;
 validateLLMEvaluator0 // endDefinition;
 
@@ -138,6 +139,29 @@ validateTool[ tool_String ] := convertStringTools @ tool;
 validateTool[ tool_TemplateObject ] := TemplateApply @ tool;
 validateTool[ other_ ] := throwFailure[ "InvalidToolSpecification", other ];
 validateTool // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*validateMCPPrompts*)
+validateMCPPrompts // beginDefinition;
+validateMCPPrompts[ prompt_String ] := validateMCPPrompts @ { prompt };
+validateMCPPrompts[ prompts_List ] :=
+    With[ { v = validateMCPPrompt /@ Flatten @ { prompts } },
+        Flatten @ { prompts } /; MatchQ[ v, { (_Association | _String)... } ]
+    ];
+validateMCPPrompts[ prompts_ ] :=
+    throwFailure[ "InvalidMCPPromptsSpecification", prompts ];
+validateMCPPrompts // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*validateMCPPrompt*)
+validateMCPPrompt // beginDefinition;
+validateMCPPrompt[ prompt_Association ] := prompt;
+validateMCPPrompt[ name_String ] /; KeyExistsQ[ $DefaultMCPPrompts, name ] := name;
+validateMCPPrompt[ name_String ] := throwFailure[ "PromptNameNotFound", name ];
+validateMCPPrompt[ other_ ] := throwFailure[ "InvalidMCPPromptSpecification", other ];
+validateMCPPrompt // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
@@ -205,7 +229,6 @@ getMCPServerObjectByLocation // endDefinition;
 (*readMetadataFile*)
 readMetadataFile // beginDefinition;
 
-(* TODO: This should check the object version and update if necessary *)
 readMetadataFile[ file_File ] := Enclose[
     Module[ { data },
         If[ ! FileExistsQ @ file, throwFailure[ "InvalidMCPServerFile", file ] ];
@@ -326,10 +349,57 @@ getInstallations // endDefinition;
 (* ::Subsubsection::Closed:: *)
 (*getPromptData*)
 getPromptData // beginDefinition;
-getPromptData[ as_Association ] := getPromptData[ as, as[ "LLMEvaluator", "PromptData" ] ];
-getPromptData[ as_, prompts: { ___Association } ] := prompts;
-getPromptData[ as_, prompts_ ] := { };
+
+(* Check for new property first *)
+getPromptData[ as_Association ] :=
+    getPromptData[ as, as[ "LLMEvaluator", "MCPPrompts" ], as[ "LLMEvaluator", "PromptData" ] ];
+
+(* MCPPrompts takes precedence *)
+getPromptData[ as_, prompts: { (_String | _Association)... }, _ ] :=
+    normalizePromptData /@ prompts;
+
+(* No MCPPrompts, check for deprecated PromptData *)
+getPromptData[ as_, _, prompts: { ___Association } ] :=
+    throwFailure[ "DeprecatedPromptData" ];
+
+(* Neither property exists - return empty *)
+getPromptData[ as_, _, _ ] := { };
+
 getPromptData // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*normalizePromptData*)
+normalizePromptData // beginDefinition;
+
+normalizePromptData[ name_String ] /; KeyExistsQ[ $DefaultMCPPrompts, name ] :=
+    $DefaultMCPPrompts[ name ];
+
+normalizePromptData[ name_String ] :=
+    throwFailure[ "PromptNameNotFound", name ];
+
+normalizePromptData[ as_Association ] := Enclose[
+    Module[ { type },
+        type = ConfirmBy[ determinePromptType @ as, StringQ, "Type" ];
+        <| as, "Type" -> type |>
+    ],
+    throwInternalFailure
+];
+
+normalizePromptData // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*determinePromptType*)
+determinePromptType // beginDefinition;
+determinePromptType[ KeyValuePattern[ "Type" -> "Function" ] ] := "Function";
+determinePromptType[ KeyValuePattern[ "Type" -> "Text" ] ] := "Text";
+determinePromptType[ KeyValuePattern[ "Type" -> Automatic ] ] := determinePromptType @ <||>;
+determinePromptType[ KeyValuePattern[ "Content" -> _String ] ] := "Text";
+determinePromptType[ KeyValuePattern[ "Content" -> _TemplateObject ] ] := "Text";
+determinePromptType[ KeyValuePattern[ "Content" -> _ ] ] := "Function";
+determinePromptType[ _ ] := "Text";
+determinePromptType // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -370,6 +440,7 @@ makeJSONConfiguration // beginDefinition;
 makeJSONConfiguration[ data_Association ] := Enclose[
     Module[ { name, env, cmd, config, full },
         name = ConfirmBy[ data[ "Name" ], StringQ, "Name" ];
+        (* FIXME: this does not include all environment variables that are needed (see `defaultEnvironment` in `InstallMCPServer.wl`) *)
         env = <| "MCP_SERVER_NAME" -> name |>;
         cmd = ConfirmBy[ getWolframCommand[ ], StringQ, "WolframCommand" ];
         config = <| "type" -> "stdio", "command" -> cmd, "args" -> $defaultCommandLineArguments, "env" -> env |>;

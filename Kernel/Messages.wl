@@ -1,28 +1,60 @@
 BeginPackage[ "Wolfram`MCPServer`" ];
 
-MCPServer::usage                      = "MCPServer is a symbol for miscellaneous messages.";
-MCPServer::DeleteBuiltInMCPServer     = "The MCP server named \"`1`\" is built-in and cannot be deleted.";
-MCPServer::DeletedMCPServerObject     = "The MCP server \"`1`\" no longer exists.";
-MCPServer::InstallMCPServer           = "Successfully installed MCP server \"`1`\".";
-MCPServer::InstallMCPServerNamed      = "Successfully installed MCP server \"`1`\" for `2`.";
-MCPServer::Internal                   = "An unexpected error occurred. `1`";
-MCPServer::InvalidArguments           = "Invalid arguments given for `1` in `2`.";
-MCPServer::InvalidMCPConfiguration    = "Invalid MCP configuration file: `1`.";
-MCPServer::InvalidMCPServerFile       = "Invalid MCPServerObject file: \"`1`\".";
-MCPServer::InvalidMCPServerObject     = "Invalid MCPServerObject argument: `1`.";
-MCPServer::InvalidProperty            = "Invalid property specification: `1`.";
-MCPServer::InvalidSession             = "StartMCPServer must run in a standalone kernel.";
-MCPServer::InvalidToolSpecification   = "Invalid tool specification: `1`.";
-MCPServer::InvalidToolsSpecification  = "Invalid tools specification: `1`.";
-MCPServer::LLMKitRequired             = "The MCP server \"`1`\" requires an LLMKit subscription to function. Click `2` to subscribe.";
-MCPServer::LLMKitSuggested            = "Warning: The MCP server \"`1`\" requires an LLMKit subscription for full functionality. Click `2` to subscribe.";
-MCPServer::MCPServerExists            = "MCP server named \"`1`\" already exists. Use `2` to overwrite it.";
-MCPServer::MCPServerFileNotFound      = "MCPServerObject file not found for MCPServer named \"`1`\".";
-MCPServer::MCPServerNotFound          = "No MCPServerObject found for name \"`1`\".";
-MCPServer::ToolNameNotFound           = "No tool named \"`1`\" found.";
-MCPServer::UninstallMCPServer         = "Successfully uninstalled MCP server \"`1`\".";
-MCPServer::UninstallMCPServerNamed    = "Successfully uninstalled MCP server \"`1`\" for `2`.";
-MCPServer::UnknownInstallLocation     = "Unable to determine install location for `1` on `2`. Use File[\[Ellipsis]] to specify a custom location.";
-MCPServer::UnsupportedOperatingSystem = "Unsupported operating system: `1`.";
+MCPServer::usage                         = "MCPServer is a symbol for miscellaneous messages.";
+MCPServer::DeleteBuiltInMCPServer        = "The MCP server named \"`1`\" is built-in and cannot be deleted.";
+MCPServer::DeletedMCPServerObject        = "The MCP server \"`1`\" no longer exists.";
+MCPServer::DevelopmentModeUnavailable    = "Development mode is not available from `1`. This option requires an unbuilt paclet with a Scripts directory.";
+MCPServer::InvalidDevelopmentMode        = "Invalid value for DevelopmentMode option: `1`. Expected False, True, or a directory path string.";
+MCPServer::InstallMCPServer              = "Successfully installed MCP server \"`1`\".";
+MCPServer::InstallMCPServerNamed         = "Successfully installed MCP server \"`1`\" for `2`.";
+MCPServer::Internal                      = "An unexpected error occurred. `1`";
+MCPServer::InvalidArguments              = "Invalid arguments given for `1` in `2`.";
+MCPServer::InvalidMCPConfiguration       = "Invalid MCP configuration file: `1`.";
+MCPServer::InvalidMCPServerFile          = "Invalid MCPServerObject file: \"`1`\".";
+MCPServer::InvalidMCPServerObject        = "Invalid MCPServerObject argument: `1`.";
+MCPServer::InvalidProperty               = "Invalid property specification: `1`.";
+MCPServer::InvalidSession                = "StartMCPServer must run in a standalone kernel.";
+MCPServer::InvalidTestFile               = "Invalid test file: \"`1`\".";
+MCPServer::InvalidToolSpecification      = "Invalid tool specification: `1`.";
+MCPServer::InvalidToolsSpecification     = "Invalid tools specification: `1`.";
+MCPServer::LLMKitRequired                = "The MCP server \"`1`\" requires an LLMKit subscription to function. Click `2` to subscribe.";
+MCPServer::LLMKitSuggested               = "Warning: The MCP server \"`1`\" requires an LLMKit subscription for full functionality. Click `2` to subscribe.";
+MCPServer::MCPServerExists               = "MCP server named \"`1`\" already exists. Use `2` to overwrite it.";
+MCPServer::MCPServerFileNotFound         = "MCPServerObject file not found for MCPServer named \"`1`\".";
+MCPServer::MCPServerNotFound             = "No MCPServerObject found for name \"`1`\".";
+MCPServer::NoTestsInFile                 = "No tests found in file: \"`1`\".";
+MCPServer::TestFileNotFound              = "Test file not found: \"`1`\".";
+MCPServer::TestKernelFailure             = "Failed to start a new kernel for testing. Try again with 'newKernel' set to False.";
+MCPServer::ToolNameNotFound              = "No tool named \"`1`\" found.";
+MCPServer::UninstallMCPServer            = "Successfully uninstalled MCP server \"`1`\".";
+MCPServer::UninstallMCPServerNamed       = "Successfully uninstalled MCP server \"`1`\" for `2`.";
+MCPServer::UnknownInstallLocation        = "Unable to determine install location for `1` on `2`. Use File[\[Ellipsis]] to specify a custom location.";
+MCPServer::UnknownProjectInstallLocation = "Unable to determine project install location for `1`. Use File[\[Ellipsis]] to specify a custom location.";
+MCPServer::UnsupportedOperatingSystem    = "Unsupported operating system: `1`.";
+MCPServer::MCPTimeout                    = "MCP request `1` timed out after `2` seconds.";
+MCPServer::UnknownTool                   = "Unknown tool: `1`.";
+MCPServer::InvalidTOMLFormat             = "Invalid TOML format in file `1` at line `2`: `3`.";
+
+(* PacletDocumentation messages *)
+MCPServer::NotebookFileExists            = "Notebook already exists: `1`.";
+MCPServer::InvalidOperation              = "Unknown operation: `1`.";
+MCPServer::NotebookNotFound              = "Notebook not found: `1`.";
+MCPServer::EmptyUsage                    = "Usage parameter cannot be empty. Provide at least one usage case.";
+MCPServer::InvalidUsageFormat            = "Invalid usage format: `1`. Expected bullet points with syntax in backticks.";
+MCPServer::InvalidSection                = "Invalid section name: `1`. Expected one of: BasicExamples, Scope, GeneralizationsExtensions, Options, Applications, PropertiesRelations, PossibleIssues, InteractiveExamples, NeatExamples.";
+
+(* MCP Prompts messages *)
+MCPServer::InvalidMCPPromptSpecification  = "Invalid MCP prompt specification: `1`.";
+MCPServer::InvalidMCPPromptsSpecification = "Invalid MCP prompts specification: `1`.";
+MCPServer::PromptNameNotFound             = "No prompt named \"`1`\" found in $DefaultMCPPrompts.";
+MCPServer::DeprecatedPromptData           = "The \"PromptData\" property is deprecated. Use \"MCPPrompts\" instead.";
+
+(* CodeInspector messages *)
+MCPServer::CodeInspectorNoInput            = "Either 'code' or 'file' parameter must be provided.";
+MCPServer::CodeInspectorAmbiguousInput     = "Provide either 'code' or 'file', not both.";
+MCPServer::CodeInspectorFileNotFound       = "File or directory not found: `1`.";
+MCPServer::CodeInspectorNoFilesFound       = "No .wl, .m, or .wls files found in directory: `1`.";
+MCPServer::CodeInspectorFailed             = "CodeInspector failed: `1`.";
+MCPServer::CodeInspectorInvalidConfidence  = "Confidence level must be between 0 and 1, got `1`.";
 
 EndPackage[ ];

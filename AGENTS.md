@@ -1,0 +1,236 @@
+# AGENTS.md
+
+This file provides guidance to AI agents (Claude Code, GitHub Copilot, etc.) when working with code in this repository.
+
+## Overview
+
+MCPServer is a Wolfram Language package that implements a Model Context Protocol (MCP) server. This enables Wolfram Language to function as a backend for large language models (LLMs) by providing a standardized interface for models to access Wolfram Language computation capabilities.
+
+> **Human developers:** For a quick-start guide, see [docs/getting-started.md](docs/getting-started.md).
+
+## Development
+
+Always use the WolframLanguageContext tool when working with Wolfram Language code to ensure that you are aware of the latest documentation and other Wolfram resources.
+
+When you make changes to paclet source code, you should also write and run tests for the changes you made using the TestReport tool and check your work with the CodeInspector tool.
+
+If you need to test changes in the WolframLanguageEvaluator tool, you'll first need to evaluate:
+```wl
+PacletDirectoryLoad[ "path/to/MCPServer" ];
+Get[ "Wolfram`MCPServer`" ]
+```
+
+Note: Using the TestReport tool is much more reliable for testing code changes.
+
+If you've previously built an MX file for the paclet, you should delete it before testing your changes. You can find it in `Kernel/64Bit/MCPServer.mx`.
+
+The kernel used by the WolframLanguageEvaluator tool cannot be restarted via code like `Quit[]` since it's also running the MCP server. If it gets into a bad state, and you can't fix it, you should stop and inform the user that the kernel needs to be restarted.
+
+## Writing Tests
+
+Write tests in the following format:
+```wl
+VerificationTest[
+    input,
+    expected,
+    SameTest -> MatchQ,
+    TestID   -> "AnAppropriateTestID"
+]
+```
+
+You can optionally include a third argument to specify any expected messages that occur during the evaluation of the input, for example:
+
+```wl
+{ MCPServer::Tag, ... }
+```
+
+Existing test IDs will also have a suffix appended to them (everything after the last `@@`) to indicate where the test is located in the codebase. You do not need to include this suffix in your new test IDs, since they are automatically generated on commit.
+
+### Unit Tests
+
+You can write unit tests for private symbols, but you should suppress linting errors for private symbols by wrapping the file in:
+```
+(* :!CodeAnalysis::BeginBlock:: *)
+(* :!CodeAnalysis::Disable::PrivateContextSymbol:: *)
+...
+(* :!CodeAnalysis::EndBlock:: *)
+```
+
+If you are writing unit tests for low-level code that you expect to throw errors, you should wrap it in a `catchTop` block to ensure that the failure returns properly.
+
+### Running Tests
+
+You can run test files using the TestReport MCP tool on the "Tests" directory.
+
+Use the WolframLanguageContext tool if tests fail to help find a solution.
+
+See [testing.md](docs/testing.md) for more details.
+
+## Building the Paclet
+
+```bash
+wolframscript -f Scripts/BuildPaclet.wls
+```
+
+This script builds the paclet and performs necessary checks. Options:
+- `-c` or `--check`: Run code checks (default: True)
+- `-i` or `--install`: Install the paclet after building (default: False)
+- `-m` or `--mx`: Build MX files (default: True)
+
+## Code Architecture
+
+### Project Structure
+
+- `Kernel/`: Contains the core implementation files
+  - `MCPServer.wl`: Main entry point which loads an MX file if available, otherwise proceeds to `Main.wl`
+  - `Main.wl`: Entry point for loading other package files; exported symbols must be declared here
+  - `Common.wl`: Common utilities and [error handling](docs/error-handling.md)
+  - `CommonSymbols.wl`: Any symbols shared between paclet files must be declared here
+  - `CreateMCPServer.wl`: Implementation for creating MCP servers
+  - `DefaultServers.wl`: Defines several predefined named MCP servers
+  - `Files.wl`: Helper functions for file operations
+  - `Formatting.wl`: Definitions for formatting in notebooks
+  - `InstallMCPServer.wl`: Implementation for installing MCP servers for use in some common MCP client applications
+  - `MCPServerObject.wl`: Defines the MCP server object format
+  - `Messages.wl`: Definitions for error messages
+  - `StartMCPServer.wl`: Implementation for starting MCP servers
+  - `Tools/`: Contains several files defining predefined MCP tools used by default servers
+  - `Prompts/`: Contains files defining predefined [MCP prompts](docs/mcp-prompts.md) used by default servers
+
+- `Scripts/`: Contains utility scripts for building, testing, and running the paclet
+  - `Common.wl`: Common utilities for scripts
+  - `BuildMX.wls`: Script to build the MX file
+  - `BuildPaclet.wls`: Script to build the paclet
+
+- `Documentation/`: Contains documentation notebooks
+  - `English/`: English documentation
+    - `ReferencePages/Symbols/`: Reference pages for exported symbols
+    - Use the ReadNotebook tool to read documentation notebooks as markdown text
+
+- `Tests/`: Contains test files (.wlt)
+  - Every test should have a `TestID` specification
+  - Do not manually write the trailing `@@path/to/file.wlt:l,c` part of the `TestID` specification; it will be added automatically on commit
+
+- `docs/`: Developer documentation
+  - `getting-started.md`: Development environment setup and workflow
+  - `testing.md`: Writing and running tests
+  - `building.md`: Building the paclet for distribution
+  - `error-handling.md`: Error handling architecture and patterns
+  - `servers.md`: Predefined MCP servers and choosing the right one
+  - `tools.md`: MCP tools system and how to add new tools
+  - `mcp-prompts.md`: MCP prompts system and how to add new prompts
+  - `mcp-clients.md`: MCP client support and installation
+
+### Key Components
+
+1. **MCPServerObject**: The main data structure representing an MCP server.
+
+2. **CreateMCPServer**: Function to create a new server with the specified name and LLM evaluator.
+
+3. **StartMCPServer**: Function that starts a server and processes client requests.
+
+4. **Common Error Handling Framework**: The package uses a sophisticated [error handling](docs/error-handling.md) system with functions like `catchTop`, `catchMine`, `throwFailure`, and `throwInternalFailure`.
+
+### Protocol Implementation
+
+The server implements the Model Context Protocol, which provides:
+
+1. **Tool Listing**: Endpoints to list available tools
+2. **Tool Execution**: Ability to execute tools from the LLM
+3. **Prompt Management**: Support for managing prompts
+
+#### MCP Documentation
+
+Use the official MCP documentation when working on the server implementation (`Kernel/StartMCPServer.wl`).
+
+- [Overview](https://modelcontextprotocol.io/specification/2025-11-25/basic/index.md)
+- [Lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle.md)
+- [Tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools.md)
+- [Prompts](https://modelcontextprotocol.io/specification/2025-11-25/server/prompts.md)
+- [List of all documentation pages](https://modelcontextprotocol.io/llms.txt)
+
+## Code Style Guidelines
+
+- Use `beginDefinition` and `endDefinition` wrappers for function definitions
+- Follow error handling patterns using `Enclose`, `Confirm`, and `ConfirmBy`
+- Use `catchMine` around the body of exported functions
+- Use `throwFailure["tag", args...]` to issue a message and return a `Failure[...]` to top level
+- Any tag used in `throwFailure` must be defined in `Messages.wl`
+
+## Key Development Patterns
+
+### Error Handling
+
+For comprehensive documentation on error handling, see [docs/error-handling.md](docs/error-handling.md).
+
+Error handling is managed using the following helpers:
+- `catchTop` - Catches anything thrown by `throwFailure` or `throwInternalFailure`. Only the outermost `catchTop` is used.
+- `throwFailure` - Throws a handled handled error with a message ID and arguments.
+- `throwInternalFailure` - Throws an unhandled internal failure error.
+
+The functions `catchMine` and `catchTopAs` are variations of `catchTop` that specify the symbol that should be used for error messages. These should only be used for public functions.
+
+Define any error messages using the `MCPServer` symbol in `Kernel/Messages.wl`. For example:
+```wl
+MCPServer::InvalidProperty = "Invalid property specification: `1`.";
+```
+
+Then, you can use something like the following to throw an error to the top level:
+```wl
+throwFailure[ "InvalidProperty", badValue ]
+```
+
+The message will automatically be issued from the symbol that's using the outermost `catchMine` or `catchTopAs` block.
+
+### Exported Functions
+
+Exported functions in the main context must be declared in both the PacletInfo.wl and Kernel/Main.wl files. Define them using the following format:
+```wl
+NameOfFunction // beginDefinition;
+NameOfFunction[ ... ] := catchMine @ internalFunction[ ... ];
+NameOfFunction // endExportedDefinition;
+```
+
+The name of the internal function is often the same as the exported function, but beginning with a lowercase letter.
+
+### Internal Functions
+
+Define internal helper functions using the following format:
+
+```wl
+nameOfFunction // beginDefinition;
+
+nameOfFunction[ ... ] := Enclose[
+    body,
+    throwInternalFailure
+];
+
+nameOfFunction // endDefinition;
+```
+
+The `Enclose` wrapper is only necessary if you are using any `Confirm`, `ConfirmBy`, `ConfirmMatch`, etc. functions in the body, and it will trigger a throw of an internal failure error if any of them fail. See [error handling](docs/error-handling.md) for details on how these are optimized.
+
+### Naming Conventions
+
+- Use `UpperCamelCase` for exported function names.
+- Use `lowerCamelCase` for internal function names.
+- Use `$UpperCamelCase` for exported variables and constants.
+- Use `$lowerCamelCase` for package or file-scoped variables and constants.
+- Use `$$patternName` for reusable patterns to improve readability, e.g.
+  ```wl
+  $$strings = _String | { ___String };
+  ```
+  which can improve readability:
+  ```wl
+  toCommaSeparated[ names: $$strings ] := StringRiffle[ Flatten @ { names }, "," ];
+  ```
+
+### Other Development Guidelines
+
+- Avoid using `Return` since the return point can sometimes be ambiguous. Instead, use `Catch` and `Throw` to control the flow of execution.
+- Whenever you modify source code, you should also write and run tests for the changes you made.
+- If you are using a package-scoped symbol defined in a different file, ensure that it is declared in a context that's reachable (e.g. `CommonSymbols.wl`).
+
+## Special Considerations
+
+While working on this paclet, you are also working on the code that's running the MCP server providing your Wolfram tools. Sometimes you might run into issues related to this and you'll need to carefully consider how current changes might be affecting the MCP server.

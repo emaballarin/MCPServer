@@ -117,27 +117,6 @@ startMCPServer // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
-(*startToolWarmup*)
-startToolWarmup // beginDefinition;
-
-startToolWarmup[ tools_ ] := (
-    Quiet @ TaskRemove @ $warmupTask;
-    If[ MatchQ[ $warmupTask, _TaskObject ],
-        debugPrint[ "Restarting tool warmup delay" ],
-        debugPrint[ "Starting tool warmup delay" ]
-    ];
-    $warmupTask = SessionSubmit @ ScheduledTask[
-        startToolWarmup[ tools ] = Null;
-        debugPrint[ "Warming up tools" ];
-        toolWarmup @ tools,
-        { $toolWarmupDelay }
-    ]
-);
-
-startToolWarmup // endDefinition;
-
-(* ::**************************************************************************************************************:: *)
-(* ::Subsubsection::Closed:: *)
 (*startParentMonitor*)
 startParentMonitor // beginDefinition;
 
@@ -415,7 +394,6 @@ evaluateTool // beginDefinition;
 
 evaluateTool[ msg_, req_ ] := Enclose[
     Catch @ Module[ { params, toolName, args, tool, result, string },
-        Quiet @ TaskRemove @ $warmupTask; (* We're in a tool call, so it no longer makes sense to warm up tools *)
         writeLog[ "ToolCall" -> msg ];
         params = ConfirmBy[ Lookup[ msg, "params", <| |> ], AssociationQ ];
         toolName = ConfirmBy[ Lookup[ params, "name" ], StringQ ];

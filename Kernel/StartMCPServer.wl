@@ -535,7 +535,6 @@ resultToContent // endDefinition;
 evaluateTool // beginDefinition;
 
 evaluateTool[ msg_, req_ ] := Enclose[
-    Catch @ Module[ { params, toolName, args, tool, result, string },
     Catch @ Module[ { params, toolName, args, tool, result, content },
         Quiet @ TaskRemove @ $warmupTask; (* We're in a tool call, so it no longer makes sense to warm up tools *)
         writeLog[ "ToolCall" -> msg ];

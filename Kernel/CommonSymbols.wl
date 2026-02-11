@@ -10,7 +10,6 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `$pacletVersion;
 `$rootPath;
 `$serverVersion;
-`$settingsData;
 `$storagePath;
 `$thisPaclet;
 `addToMXInitialization;
@@ -29,6 +28,7 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `fileNameJoin;
 `fileQ;
 `getLLMKitInfo;
+`defaultEnvironment;
 `getWolframCommand;
 `importResourceFunction;
 `initializeVectorDatabases;
@@ -62,11 +62,23 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 (* Shared symbols with Tools subcontexts: *)
 `exportMarkdownString;
 
+(* Graphics detection and conversion: *)
+`graphicsQ;
+`graphicsToImageContent;
+
+(* WolframAlpha image extraction: *)
+`extractWolframAlphaImages;
+
 (* Internal failure formatting: *)
 `$internalFailureLogPath;
 `extractFailureTag;
 `formatInternalFailureForMCP;
 `generateUniqueFailureFileName;
 `cleanupOldFailureLogs;
+
+(* Output logging: *)
+`$outputLogDirectory;
+`outputLogFile;
+`cleanupOldOutputLogs;
 
 EndPackage[ ];

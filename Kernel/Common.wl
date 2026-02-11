@@ -29,12 +29,13 @@ $resourceFunctionContext = "Wolfram`MCPServer`ResourceFunctions`";
 $internalFailureLogDirectory := FileNameJoin @ { $UserBaseDirectory, "Logs", "MCPServer", "InternalFailures" };
 
 $resourceVersions = <|
+    "ASTPattern"                     -> "1.0.0",
     "BinarySerializeWithDefinitions" -> "1.0.0",
     "ExportMarkdownString"           -> "1.0.0",
     "ImportMarkdownString"           -> "1.0.0",
+    "MessageFailure"                 -> "1.0.1",
     "ReadableForm"                   -> "2.1.1",
-    "ReplaceContext"                 -> "1.0.0",
-    "MessageFailure"                 -> "1.0.1"
+    "ReplaceContext"                 -> "1.0.0"
 |>;
 
 (* ::**************************************************************************************************************:: *)
@@ -568,7 +569,6 @@ $maxPartLength = 500;
 $thisPaclet    := PacletObject[ "Wolfram/MCPServer" ];
 $pacletVersion := $thisPaclet[ "Version" ];
 $debugData     := debugData @ $thisPaclet[ "PacletInfo" ];
-$settingsData  := $settings;
 $releaseID     := $releaseID = getReleaseID @ $thisPaclet;
 
 (* ::**************************************************************************************************************:: *)
@@ -629,11 +629,10 @@ $bugReportLink := Hyperlink[
 bugReportBody[ ] := bugReportBody @ $thisPaclet[ "PacletInfo" ];
 
 bugReportBody[ as_Association? AssociationQ ] :=
-    Module[ { debugData, stack, settings, internalFailure, bugReportText, dir, fileName, filePath, file, data },
+    Module[ { debugData, stack, internalFailure, bugReportText, dir, fileName, filePath, file, data },
 
         debugData        = $debugData;
         stack            = $bugReportStack;
-        settings         = $settings;
         internalFailure  = $internalFailure;
 
         bugReportText = TemplateApply[
@@ -642,8 +641,6 @@ bugReportBody[ as_Association? AssociationQ ] :=
                 (* FIXME: This should include information about the current MCP server (if applicable) *)
                 "DebugData"       -> associationMarkdown @ debugData,
                 "Stack"           -> stack,
-                (* FIXME: There are no settings in this paclet, so this is always empty *)
-                "Settings"        -> associationMarkdown @ takeRelevantSettings @ settings,
                 "InternalFailure" -> markdownCodeBlock @ internalFailure,
                 "SourceLink"      -> sourceLink @ internalFailure
             |>
@@ -654,7 +651,6 @@ bugReportBody[ as_Association? AssociationQ ] :=
             "PacletInfo"      -> as,
             "DebugData"       -> debugData,
             "Stack"           -> stack,
-            "Settings"        -> settings,
             "InternalFailure" -> internalFailure
         |>;
 
@@ -681,16 +677,6 @@ bugReportBody[ as_Association? AssociationQ ] :=
 
         bugReportText
     ];
-
-(* ::**************************************************************************************************************:: *)
-(* ::Subsubsection::Closed:: *)
-(*takeRelevantSettings*)
-takeRelevantSettings // beginDefinition;
-takeRelevantSettings[ settings_Association ] := KeyDrop[ settings, $droppedSettingsKeys ];
-takeRelevantSettings // endDefinition;
-
-(* Settings that we don't need in debug data: *)
-$droppedSettingsKeys = { };
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -849,12 +835,33 @@ cleanupOldFailureLogs[ maxFiles_Integer ] :=
         files = FileNames[ "*.mx", dir ];
         If[ Length @ files <= maxFiles, Throw @ Null ];
         (* Sort by modification time, newest first *)
-        files = SortBy[ files, -FileDate[ #, "Modification" ] & ];
+        files = ReverseSortBy[ files, FileDate[ #, "Modification" ] & ];
         toDelete = Drop[ files, maxFiles ];
         Quiet @ DeleteFile /@ toDelete;
     ];
 
 cleanupOldFailureLogs // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*cleanupOldOutputLogs*)
+cleanupOldOutputLogs // beginDefinition;
+
+cleanupOldOutputLogs[ ] := cleanupOldOutputLogs[ 50 ];
+
+cleanupOldOutputLogs[ maxFiles_Integer ] :=
+    Catch @ Module[ { dir, files, toDelete },
+        dir = $outputLogDirectory;
+        If[ ! DirectoryQ @ dir, Throw @ Null ];
+        files = FileNames[ "*.log", dir ];
+        If[ Length @ files <= maxFiles, Throw @ Null ];
+        (* Sort by modification time, newest first *)
+        files = ReverseSortBy[ files, FileDate[ #, "Modification" ] & ];
+        toDelete = Drop[ files, maxFiles ];
+        Quiet @ DeleteFile /@ toDelete;
+    ];
+
+cleanupOldOutputLogs // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
@@ -894,10 +901,6 @@ Remove any information that you do not wish to include in the report.\
 
 %%DebugData%%
 
-## Settings
-
-%%Settings%%
-
 ## Failure Data
 
 %%InternalFailure%%
@@ -935,11 +938,6 @@ $bugReportStack := StringRiffle[
     ],
     "\n"
 ];
-
-(* ::**************************************************************************************************************:: *)
-(* ::Subsubsection::Closed:: *)
-(*$settings*)
-$settings = <| |>;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)

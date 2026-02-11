@@ -9,9 +9,6 @@ Consolidated list of TODO/FIXME items from the codebase.
 - [ ] Add `Initialization` option to `CreateMCPServer`
   - Source: `Kernel/CreateMCPServer.wl`
 - [ ] Add `ProcessDirectory` option to `InstallMCPServer` ([See Issue #69](https://github.com/rhennigan/MCPServer/issues/69))
-- [ ] Include all required environment variables in `makeJSONConfiguration`
-  - Source: `Kernel/MCPServerObject.wl`
-  - Should match `defaultEnvironment` from `InstallMCPServer.wl`
 
 ## MCP Protocol Support
 
@@ -22,8 +19,6 @@ Consolidated list of TODO/FIXME items from the codebase.
   - Source: `Kernel/StartMCPServer.wl`
 - [ ] Support resources capability
   - Source: `Kernel/StartMCPServer.wl`
-- [ ] Support image outputs from tools according to MCP spec
-  - Source: `Kernel/Tools/Tools.wl`
 
 ## Tools
 
@@ -50,8 +45,6 @@ Consolidated list of TODO/FIXME items from the codebase.
   - Source: `Kernel/Tools/Tools.wl`
 - [ ] Documentation editing tools should have examples evaluation be optional
   - Source: `Kernel/Tools/Tools.wl`
-- [ ] Return multimodal content in tool results when appropriate
-  - Source: `Kernel/StartMCPServer.wl`
 - [ ] Implement `ReadableForm` in this paclet for better code formatting
   - Source: `Kernel/Tools/TestReport.wl`
 - [ ] Show relative paths in CodeInspector output when inspecting directories
@@ -71,15 +64,11 @@ Consolidated list of TODO/FIXME items from the codebase.
 
 ## Logging & Diagnostics
 
-- [ ] Create MCP server output log file at `$UserBaseDirectory/Logs/MCPServer/Output/`
+- [x] Create MCP server output log file at `$UserBaseDirectory/Logs/MCPServer/Output/`
   - Source: `Kernel/StartMCPServer.wl`
   - Redirect `$Output` and `$Messages` to the log file
-  - Catch and redirect explicit `Write`/`WriteString`/`BinaryWrite` calls to stdout/stderr
-- [ ] Add integration tests for running MCP server via `StartProcess`/`WriteString`/`ReadString`
-  - Source: `Kernel/StartMCPServer.wl`
+  - Note: Intercepting explicit `Write`/`WriteString`/`BinaryWrite` calls deferred to future work
 - [ ] Include information about the current MCP server in bug reports
-  - Source: `Kernel/Common.wl`
-- [ ] Remove empty "Settings" section from bug reports (this paclet has no settings)
   - Source: `Kernel/Common.wl`
 
 ## Connect to External MCP Servers (Major Feature)

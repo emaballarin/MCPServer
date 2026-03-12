@@ -9,10 +9,10 @@ Needs[ "Wolfram`MCPServer`Common`" ];
 (* ::**************************************************************************************************************:: *)
 (* ::Section::Closed:: *)
 (*Configuration*)
-$rootPath            := FileNameJoin @ { $UserBaseDirectory, "ApplicationData", "Wolfram", "MCPServer" };
-$storagePath         := FileNameJoin @ { $rootPath, "Servers" };
-$imagePath           := FileNameJoin @ { $rootPath, "Images"  };
-$outputLogDirectory  := FileNameJoin @ { $UserBaseDirectory, "Logs", "MCPServer", "Output" };
+$rootPath           := FileNameJoin @ { $UserBaseDirectory, "ApplicationData", "Wolfram", "MCPServer" };
+$storagePath        := FileNameJoin @ { $rootPath, "Servers" };
+$imagePath          := FileNameJoin @ { $rootPath, "Images"  };
+$outputLogDirectory := FileNameJoin @ { $UserBaseDirectory, "Logs", "MCPServer", "Output" };
 
 (* ::**************************************************************************************************************:: *)
 (* ::Section::Closed:: *)
@@ -151,8 +151,12 @@ ensureDirectory // endDefinition;
 (*ensureFilePath*)
 ensureFilePath // beginDefinition;
 
-ensureFilePath[ file_ ] := Enclose[
-    Module[ { dir },
+ensureFilePath[ File[ file_String ] ] :=
+    ensureFilePath @ file;
+
+ensureFilePath[ file0_String ] := Enclose[
+    Module[ { file, dir },
+        file = ExpandFileName @ file0;
         dir = ConfirmBy[ ensureDirectory @ DirectoryName @ file, DirectoryQ, "Directory" ];
         ConfirmBy[ toFile @ file, fileQ, "Result" ]
     ],
@@ -198,8 +202,28 @@ writeWXFFile // endDefinition;
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
 (*readRawJSONFile*)
+(* Effectively equivalent to Developer`ReadRawJSONFile, but it returns Missing[ "EmptyFile" ] if the file is empty. *)
 readRawJSONFile // beginDefinition;
-readRawJSONFile[ file_, opts: OptionsPattern[ ] ] := Developer`ReadRawJSONFile[ ExpandFileName @ file, opts ];
+
+readRawJSONFile[ file0_, opts: OptionsPattern[ ] ] := Enclose[
+    Catch @ Module[ { file, bytes, string },
+        file = ConfirmBy[ ExpandFileName @ file0, StringQ, "File" ];
+
+        (* Let ReadByteArray issue the appropriate messages *)
+        bytes = ReadByteArray @ file;
+        If[ bytes === EndOfFile, Throw @ Missing[ "EmptyFile" ] ];
+        If[ ! ByteArrayQ @ bytes, Throw @ $Failed ];
+
+        (* Return Missing[ "EmptyFile" ] if the file is empty *)
+        string = ConfirmBy[ ByteArrayToString[ bytes, "UTF8" ], StringQ, "String" ];
+        If[ StringMatchQ[ string, WhitespaceCharacter... ], Throw @ Missing[ "EmptyFile" ] ];
+
+        (* Otherwise, parse the string as JSON *)
+        Developer`ReadRawJSONString[ string, opts ]
+    ],
+    throwInternalFailure
+];
+
 readRawJSONFile // endDefinition;
 
 (* ::**************************************************************************************************************:: *)

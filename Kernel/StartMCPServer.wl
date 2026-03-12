@@ -16,7 +16,9 @@ $protocolVersion    = "2024-11-05";
 $toolWarmupDelay    = 5; (* seconds *)
 $parentMonitorInterval = 2; (* seconds - check if parent process is alive *)
 $clientName         = None;
+$clientSupportsUI   = False;
 $currentMCPServer   = None;
+$mcpEvaluation      = False;
 
 $logTimeStamp := DateString[
     {
@@ -49,6 +51,46 @@ stealthCatchTop // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
+(*parseToolOptions*)
+parseToolOptions // beginDefinition;
+parseToolOptions[ env_String ] := parseToolOptions0 @ Quiet @ Developer`ReadRawJSONString @ env;
+parseToolOptions[ _ ] := <| |>;
+parseToolOptions // endDefinition;
+
+
+parseToolOptions0 // beginDefinition;
+
+parseToolOptions0[ options_ ] := Enclose[
+    If[ AssociationQ @ options,
+        ConfirmBy[ Association @ KeyValueMap[ parseToolOptions0, options ], AssociationQ, "ToolOptions" ],
+        <| |>
+    ],
+    throwInternalFailure
+];
+
+parseToolOptions0[ tool_String, opts_ ] := Enclose[
+    If[ AssociationQ @ opts,
+        tool -> ConfirmBy[
+            DeleteMissing @ Association @ KeyValueMap[ parseToolOptions0[ tool, #1, #2 ] &, opts ],
+            AssociationQ,
+            "ToolOptions"
+        ],
+        Nothing
+    ],
+    throwInternalFailure
+];
+
+parseToolOptions0[ tool_String, optionName_String, optionValue_ ] :=
+    optionName -> ReplaceAll[
+        optionValue,
+        (* Symbols that don't have a corresponding JSON representation: *)
+        { "Automatic" -> Automatic, "None" -> None }
+    ];
+
+parseToolOptions0 // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
 (*startMCPServer*)
 startMCPServer // beginDefinition;
 
@@ -58,30 +100,25 @@ startMCPServer[ obj_ ] /; $Notebooks :=
 (* :!CodeAnalysis::BeginBlock:: *)
 (* :!CodeAnalysis::Disable::SuspiciousSessionSymbol:: *)
 startMCPServer[ obj_MCPServerObject ] := Enclose[
-    Block[ { $currentMCPServer = obj },
-        superQuiet @ Module[ { logFile, llmTools, toolList, promptList, promptLookup, init, response },
+    Block[ { $currentMCPServer = obj, $mcpEvaluation = True },
+        superQuiet @ Module[ { logFile, llmTools, toolList, promptList, promptLookup, response },
 
         SetOptions[ First @ Streams[ "stdout" ], CharacterEncoding -> "UTF-8" ];
         SetOptions[ First @ Streams[ "stderr" ], CharacterEncoding -> "UTF-8" ];
+
+        cleanupOldOutputLogs[ ];
 
         logFile = ConfirmBy[ ensureFilePath @ mcpServerLogFile @ obj, fileQ, "LogFile" ];
         If[ FileExistsQ @ logFile, DeleteFile @ logFile ];
         writeLog[ "LogFile" -> logFile ];
 
-        llmTools = Association[ #[ "Name" ] -> # & /@ ConfirmMatch[ obj[ "Tools" ], { ___LLMTool }, "Tools" ] ];
-
-        toolList = Map[
-            <|
-                "name"        -> safeString @ #[ "Name"        ],
-                "description" -> safeString @ #[ "Description" ],
-                "inputSchema" -> #[ "JSONSchema" ]
-            |> &,
-            Values @ llmTools
-        ];
-
+        llmTools     = Association[ #[ "Name" ] -> # & /@ ConfirmMatch[ obj[ "Tools" ], { ___LLMTool }, "Tools" ] ];
+        toolList     = ConfirmMatch[ createMCPToolData /@ Values @ llmTools, { ___Association }, "ToolList" ];
         promptList   = ConfirmMatch[ makePromptData @ obj[ "PromptData" ], { ___Association }, "PromptData" ];
         promptLookup = ConfirmBy[ makePromptLookup @ obj[ "PromptData" ], AssociationQ, "PromptLookup" ];
-        init         = ConfirmBy[ initResponse @ obj, AssociationQ, "InitResponse" ];
+
+        initializeUIResources[ ];
+        $toolOptions = parseToolOptions @ Environment[ "MCP_TOOL_OPTIONS" ];
 
         (* Start background task to monitor parent process *)
         If[ Or[ $OperatingSystem === "MacOSX", $OperatingSystem === "Unix" ],
@@ -90,12 +127,12 @@ startMCPServer[ obj_MCPServerObject ] := Enclose[
 
         Block[
             {
-                $initResult   = init,
                 $toolList     = toolList,
                 $llmTools     = llmTools,
                 $promptList   = promptList,
                 $promptLookup = promptLookup,
-                $logFile      = logFile
+                $logFile      = logFile,
+                $toolOptions  = $toolOptions
             },
             While[ True,
                 response = catchAlways @ processRequest[ ];
@@ -140,6 +177,37 @@ startParentMonitor[ ] := (
 );
 
 startParentMonitor // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*createMCPToolData*)
+createMCPToolData // beginDefinition;
+
+createMCPToolData[ tool: HoldPattern[ _LLMTool ] ] := Enclose[
+    Module[ { data, name, description, inputSchema, title, annotations },
+
+        data = ConfirmBy[ tool[ "Data" ], AssociationQ, "Data" ];
+        name = safeString @ ConfirmBy[ tool[ "Name" ], StringQ, "Name" ];
+        description = safeString @ ConfirmBy[ tool[ "Description" ], StringQ, "Description" ];
+        inputSchema = ConfirmBy[ tool[ "JSONSchema" ], AssociationQ, "InputSchema" ];
+
+        title = Lookup[ data, "DisplayName", Missing[ ] ];
+        If[ StringQ @ title, title = safeString @ title ];
+
+        annotations = If[ StringQ @ title, <| "title" -> title |>, Missing[ ] ];
+
+        DeleteMissing @ <|
+            "name"        -> name,
+            "title"       -> title,
+            "description" -> description,
+            "inputSchema" -> inputSchema,
+            "annotations" -> annotations
+        |>
+    ],
+    throwInternalFailure
+];
+
+createMCPToolData // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -287,15 +355,17 @@ handleMethod // beginDefinition;
    https://modelcontextprotocol.io/specification/2025-11-25/client/roots#protocol-messages *)
 handleMethod[ "initialize", msg_, req_ ] := (
     $clientName = Replace[ msg[[ "params", "clientInfo", "name" ]], Except[ _String ] :> None ];
+    $clientSupportsUI = mcpAppsEnabledQ[ ] && clientSupportsUIQ @ msg;
     If[ ! stderrEnabledQ[ ], $Messages = { } ];
-    <| req, "result" -> $initResult |>
+    <| req, "result" -> initResponse[ $currentMCPServer, msg ] |>
 );
 
 handleMethod[ "ping"          , msg_, req_ ] := <| req, "result" -> <| |> |>;
-handleMethod[ "resources/list", msg_, req_ ] := <| req, "result" -> <| "resources" -> { } |> |>;
+handleMethod[ "resources/list", msg_, req_ ] := <| req, "result" -> <| "resources" -> listUIResources[ ] |> |>;
+handleMethod[ "resources/read", msg_, req_ ] := handleResourceRead[ msg, req ];
 handleMethod[ "prompts/list"  , msg_, req_ ] := <| req, "result" -> <| "prompts" -> $promptList |> |>;
 handleMethod[ "prompts/get"   , msg_, req_ ] := <| req, "result" -> getPrompt[ msg, req ] |>;
-handleMethod[ "tools/list"    , msg_, req_ ] := <| req, "result" -> <| "tools" -> $toolList |> |>;
+handleMethod[ "tools/list"    , msg_, req_ ] := <| req, "result" -> <| "tools" -> withToolUIMetadata @ $toolList |> |>;
 handleMethod[ "tools/call"    , msg_, req_ ] := <| req, "result" -> evaluateTool[ msg, req ] |>;
 
 (* Ignored *)
@@ -309,6 +379,55 @@ e: handleMethod[ method_, msg_, req_ ] := (
 );
 
 handleMethod // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*handleResourceRead*)
+handleResourceRead // beginDefinition;
+
+handleResourceRead[ msg_Association, req_ ] :=
+    Module[ { result },
+        result = catchAlways @ readUIResource[ msg, req ];
+        If[ FailureQ @ result,
+            <| req, "error" -> resourceReadError[ result, msg ] |>,
+            <| req, "result" -> result |>
+        ]
+    ];
+
+handleResourceRead // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*resourceReadError*)
+resourceReadError // beginDefinition;
+
+(* Resource not found: invalid params (-32602) *)
+resourceReadError[ failure: Failure[ _String? (StringEndsQ[ "::UIResourceNotFound" ]), _ ], msg_ ] :=
+    <| "code" -> -32602, "message" -> resourceReadErrorMessage[ failure, msg ] |>;
+
+(* Any other failure: internal error (-32603) *)
+resourceReadError[ failure_Failure, msg_ ] :=
+    <| "code" -> -32603, "message" -> resourceReadErrorMessage[ failure, msg ] |>;
+
+resourceReadError // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsubsection::Closed:: *)
+(*resourceReadErrorMessage*)
+resourceReadErrorMessage // beginDefinition;
+
+resourceReadErrorMessage[ failure_Failure, msg_ ] :=
+    With[ { failureMsg = failure[ "Message" ] },
+        If[ StringQ @ failureMsg, failureMsg, resourceReadErrorMessage[ msg ] ]
+    ];
+
+resourceReadErrorMessage[ msg_Association ] :=
+    resourceReadErrorMessage @ Replace[ msg[[ "params", "uri" ]], Except[ _String ] :> "unknown" ];
+
+resourceReadErrorMessage[ uri_String ] :=
+    "UI resource not found: " <> uri;
+
+resourceReadErrorMessage // endDefinition;
 
 (* ::**************************************************************************************************************:: *)
 (* ::Subsubsection::Closed:: *)
@@ -423,8 +542,10 @@ formatPromptError // endDefinition;
 graphicsToImageContent // beginDefinition;
 
 graphicsToImageContent[ g_ ] := Enclose[
-    Module[ { png, base64 },
-        png = ConfirmBy[ Quiet @ ExportByteArray[ g, "PNG" ], ByteArrayQ, "PNG" ];
+    Module[ { img, png, base64 },
+        (* Ensure it's an image, otherwise ExportByteArray may try to export an animated PNG, which is not desired *)
+        img = If[ ImageQ @ g, g, Rasterize @ g ];
+        png = ConfirmBy[ Quiet @ ExportByteArray[ img, "PNG" ], ByteArrayQ, "PNG" ];
         base64 = ConfirmBy[ BaseEncode @ png, StringQ, "Base64" ];
         <| "type" -> "image", "data" -> base64, "mimeType" -> "image/png" |>
     ],
@@ -446,6 +567,9 @@ $$waImageURLPattern = Shortest[
 ];
 
 extractWolframAlphaImages // beginDefinition;
+
+(* When not running as an MCP server, we don't want to format for MCP outputs: *)
+extractWolframAlphaImages[ str_String ] /; ! $mcpEvaluation := str;
 
 extractWolframAlphaImages[ str_String ] := Enclose[
     Catch @ Module[ { parts, hasImages, contentItems },
@@ -535,7 +659,7 @@ resultToContent // endDefinition;
 evaluateTool // beginDefinition;
 
 evaluateTool[ msg_, req_ ] := Enclose[
-    Catch @ Module[ { params, toolName, args, tool, result, content },
+    Catch @ Module[ { params, toolName, args, tool, result, content, toolResultAssoc },
         Quiet @ TaskRemove @ $warmupTask; (* We're in a tool call, so it no longer makes sense to warm up tools *)
         writeLog[ "ToolCall" -> msg ];
         params = ConfirmBy[ Lookup[ msg, "params", <| |> ], AssociationQ ];
@@ -567,7 +691,14 @@ evaluateTool[ msg_, req_ ] := Enclose[
                 resultToContent @ result
         ];
 
-        <| "content" -> ConfirmMatch[ content, { __Association } ], "isError" -> FailureQ @ result |>
+        toolResultAssoc = <| "content" -> ConfirmMatch[ content, { __Association } ], "isError" -> FailureQ @ result |>;
+
+        (* Forward _meta from structured tool results (e.g. notebookUrl for MCP Apps) *)
+        If[ AssociationQ @ result && AssociationQ @ result[ "_meta" ],
+            toolResultAssoc[ "_meta" ] = result[ "_meta" ]
+        ];
+
+        toolResultAssoc
     ],
     throwInternalFailure
 ];
@@ -620,9 +751,9 @@ superQuiet[ eval_ ] :=
             $Failed
         ];
 
-        If[ MatchQ[ logStream, OutputStream[ _, _ ] ],
+        If[ MatchQ[ logStream, _OutputStream ],
             (* Success: redirect to log file *)
-            cleanupOldOutputLogs[ ];
+
             WithCleanup[
                 Block[
                     {
@@ -659,7 +790,13 @@ initResponse // beginDefinition;
 initResponse[ obj_MCPServerObject ] :=
     initResponse[ obj[ "Name" ], obj[ "ServerVersion" ], obj[ "Tools" ], obj[ "Prompts" ] ];
 
-initResponse[ name_String, version_String, tools0: { ___LLMTool }, prompts_ ] := Enclose[
+initResponse[ obj_MCPServerObject, clientMsg_Association ] :=
+    initResponse[ obj[ "Name" ], obj[ "ServerVersion" ], obj[ "Tools" ], obj[ "Prompts" ], clientMsg ];
+
+initResponse[ name_String, version_String, tools0: { ___LLMTool }, prompts_ ] :=
+    initResponse[ name, version, tools0, prompts, <| |> ];
+
+initResponse[ name_String, version_String, tools0: { ___LLMTool }, prompts_, clientMsg_Association ] := Enclose[
     Module[ { tools, instructions },
         tools = If[ Length @ tools0 > 0, <| "listChanged" -> True |>, <| |> ];
         instructions = ConfirmMatch[ makeInstructions @ prompts, _Missing | _String, "Instructions" ];
@@ -667,10 +804,16 @@ initResponse[ name_String, version_String, tools0: { ___LLMTool }, prompts_ ] :=
             "protocolVersion" -> $protocolVersion,
             "instructions"    -> instructions,
             "capabilities" -> <|
-                "logging"   -> <| |>, (* TODO: support logging *)
-                "prompts"   -> <| |>, (* TODO: support prompts *)
-                "resources" -> <| |>, (* TODO: support resources *)
-                "tools"     -> tools
+                "prompts" -> <| |>,
+                "tools" -> tools,
+                If[ TrueQ @ $clientSupportsUI,
+                    "extensions" -> <|
+                        "io.modelcontextprotocol/ui" -> <|
+                            "mimeTypes" -> { "text/html;profile=mcp-app" }
+                        |>
+                    |>,
+                    Nothing
+                ]
             |>,
             "serverInfo" -> <| "name" -> name, "version" -> version |>
         |>

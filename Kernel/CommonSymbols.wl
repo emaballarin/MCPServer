@@ -1,16 +1,19 @@
 BeginPackage[ "Wolfram`MCPServer`Common`" ];
 
+`$aliasToCanonicalName;
 `$catching;
 `$catchTopTag;
 `$cloudNotebooks;
 `$debug;
 `$defaultMCPServer;
 `$imagePath;
+`$mcpEvaluation;
 `$objectVersion;
 `$pacletVersion;
 `$rootPath;
 `$serverVersion;
 `$storagePath;
+`$supportedMCPClients;
 `$thisPaclet;
 `addToMXInitialization;
 `beginDefinition;
@@ -19,6 +22,7 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `catchTop;
 `catchTopAs;
 `chatbookVersionCheck;
+`defaultEnvironment;
 `directoryQ;
 `endDefinition;
 `endExportedDefinition;
@@ -28,7 +32,6 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `fileNameJoin;
 `fileQ;
 `getLLMKitInfo;
-`defaultEnvironment;
 `getWolframCommand;
 `importResourceFunction;
 `initializeVectorDatabases;
@@ -80,5 +83,27 @@ BeginPackage[ "Wolfram`MCPServer`Common`" ];
 `$outputLogDirectory;
 `outputLogFile;
 `cleanupOldOutputLogs;
+
+(* Logging utilities: *)
+`debugPrint;
+`writeError;
+
+(* MCP Apps / UI resources: *)
+`$clientSupportsUI;
+`$uiResourceRegistry;
+`$toolUIAssociations;
+`clientSupportsUIQ;
+`mcpAppsEnabledQ;
+`initializeUIResources;
+`listUIResources;
+`loadUIResource;
+`readUIResource;
+`toolUIMetadata;
+`withToolUIMetadata;
+
+(* Tool options: *)
+`$toolOptions;
+`$defaultToolOptions;
+`toolOptionValue;
 
 EndPackage[ ];

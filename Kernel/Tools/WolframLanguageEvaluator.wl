@@ -20,18 +20,14 @@ $cloudImagePath        := CloudObject[ "MCPServer/Images", Permissions -> $cloud
 $cloudImagePermissions := If[ $imageExportMethod === "CloudPublic", "Public", "Private" ];
 $line                   = 1;
 
+$deployedNotebookRoot = "MCPServer/Notebooks";
+$outputSizeLimit      = 100000;
+
 (* ::**************************************************************************************************************:: *)
 (* ::Subsection::Closed:: *)
-(*Environment Variable Configuration*)
-$evaluatorMethod := $evaluatorMethod =
-    With[ { method = Environment[ "WOLFRAM_LANGUAGE_EVALUATOR_METHOD" ] },
-        If[ StringQ @ method && method =!= "", method, "Session" ]
-    ];
-
-$imageExportMethod := $imageExportMethod =
-    With[ { method = Environment[ "WOLFRAM_LANGUAGE_EVALUATOR_IMAGE_EXPORT_METHOD" ] },
-        If[ StringQ @ method && method =!= "", method, "None" ]
-    ];
+(*Tool Option Configuration*)
+$evaluatorMethod   := toolOptionValue[ "WolframLanguageEvaluator", "Method" ];
+$imageExportMethod := toolOptionValue[ "WolframLanguageEvaluator", "ImageExportMethod" ];
 
 (* ::**************************************************************************************************************:: *)
 (* ::Section::Closed:: *)
@@ -71,10 +67,19 @@ $defaultMCPTools[ "WolframLanguageEvaluator" ] := LLMTool @ <|
         |>,
         "timeConstraint" -> <|
             "Interpreter" -> "Integer",
-            "Help"        -> "The time constraint for the evaluation (default is 60 seconds).",
+            "Help"        -> "The time constraint for the evaluation. Uses the server's configured default if not specified.",
             "Required"    -> False
         |>
     }
+|>;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*Default Tool Options*)
+$defaultToolOptions[ "WolframLanguageEvaluator" ] = <|
+    "Method"            -> "Session",
+    "ImageExportMethod" -> None,
+    "TimeConstraint"    -> 60
 |>;
 
 (* ::**************************************************************************************************************:: *)
@@ -87,10 +92,13 @@ $defaultMCPTools[ "WolframLanguageEvaluator" ] := LLMTool @ <|
 evaluateWolframLanguage // beginDefinition;
 
 evaluateWolframLanguage[ KeyValuePattern @ { "code" -> code_, "timeConstraint" -> timeConstraint_ } ] :=
-    evaluateWolframLanguage[ code, timeConstraint ];
+    If[ TrueQ @ $clientSupportsUI && TrueQ @ $CloudConnected,
+        evaluateWolframLanguageUI[ code, timeConstraint ],
+        evaluateWolframLanguage[ code, timeConstraint ]
+    ];
 
 evaluateWolframLanguage[ code_String, _Missing ] :=
-    evaluateWolframLanguage[ code, 60 ];
+    evaluateWolframLanguage[ code, toolOptionValue[ "WolframLanguageEvaluator", "TimeConstraint" ] ];
 
 evaluateWolframLanguage[ code_String, timeConstraint_Integer ] := Enclose[
     Module[ { string, exported },
@@ -157,7 +165,7 @@ exportImages[ str_String ] := Enclose[
         ];
 
         (* Append the image hint reminder if there were images *)
-        If[ TrueQ @ hasImages && $imageExportMethod =!= "None",
+        If[ TrueQ @ hasImages && $imageExportMethod =!= None,
             AppendTo[ contentItems, <| "type" -> "text", "text" -> "\n\n" <> $markdownImageHint |> ]
         ];
 
@@ -215,6 +223,188 @@ exportImage[ expr_, "Cloud"|"CloudPublic" ] := Enclose[
 exportImage[ expr_, _ ] := None;
 
 exportImage // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Section::Closed:: *)
+(*UI-Enhanced Evaluation*)
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*evaluateWolframLanguageUI*)
+evaluateWolframLanguageUI // beginDefinition;
+
+evaluateWolframLanguageUI[ code_String, _Missing ] :=
+    evaluateWolframLanguageUI[ code, toolOptionValue[ "WolframLanguageEvaluator", "TimeConstraint" ] ];
+
+evaluateWolframLanguageUI[ code_String, timeConstraint_Integer ] :=
+    Module[ { savedLine, result, uiResult },
+        savedLine = $line;
+        result = evaluateWolframLanguageForUI[ code, timeConstraint ];
+        uiResult = Quiet @ UsingFrontEnd @ makeEvaluatorUIResult[ code, result ];
+        If[ MatchQ[ uiResult, KeyValuePattern[ "Content" -> { __Association } ] ],
+            uiResult,
+            (* UI result creation failed; reuse already-computed string to avoid re-evaluation *)
+            If[ StringQ @ result[ "String" ],
+                exportImages @ result[ "String" ],
+                (* String result not available; re-evaluate as last resort *)
+                $line = savedLine;
+                evaluateWolframLanguage[ code, timeConstraint ]
+            ]
+        ]
+    ];
+
+evaluateWolframLanguageUI // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*evaluateWolframLanguageForUI*)
+evaluateWolframLanguageForUI // beginDefinition;
+(* :!CodeAnalysis::BeginBlock:: *)
+(* :!CodeAnalysis::Disable::PrivateContextSymbol:: *)
+evaluateWolframLanguageForUI[ code_String, timeConstraint_Integer ] :=
+    Block[ { Wolfram`Chatbook`Sandbox`Private`$includeDefinitions = False },
+        catchAlways @ cb`WolframLanguageToolEvaluate[
+            code,
+            { "String", "Result" },
+            "Line"                  -> $line++,
+            "MaxCharacterCount"     -> 10000,
+            "AppendRetryNotice"     -> False,
+            "AppendURIInstructions" -> False,
+            "Method"                -> $evaluatorMethod,
+            "TimeConstraint"        -> timeConstraint
+        ]
+    ];
+(* :!CodeAnalysis::EndBlock:: *)
+evaluateWolframLanguageForUI // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*makeEvaluatorUIResult*)
+makeEvaluatorUIResult // beginDefinition;
+
+makeEvaluatorUIResult[
+    code0_String,
+    KeyValuePattern[ { "Result" -> heldResult_, "String" -> stringResult_String } ]
+] := Enclose[
+    Module[ { code, textContent, outLabel, inLabel, inputCell, outputCell, nb, hash, target, deployed, notebookUrl },
+
+        code = StringTrim @ code0;
+
+        textContent = ConfirmMatch[
+            toContentList @ exportImages @ stringResult,
+            { __Association },
+            "TextContent"
+        ];
+
+        (* Extract cell labels from string *)
+        outLabel = Last[ StringCases[ stringResult, "Out[" ~~ DigitCharacter.. ~~ "]=" ], "Out[1]=" ];
+        inLabel  = StringReplace[ outLabel, "Out[" ~~ n: DigitCharacter.. ~~ "]=" :> "In[" <> n <> "]:=" ];
+
+        (* Create cells *)
+        inputCell = Cell[
+            BoxData @ makeFancyCharacters @ cb`StringToBoxes[ code, "WL" ],
+            "Input",
+            CellLabel            -> inLabel,
+            LanguageCategory     -> "Input",
+            ShowAutoStyles       -> True,
+            ShowStringCharacters -> True,
+            ShowSyntaxStyles     -> True
+        ];
+
+        outputCell = Cell[
+            BoxData[ toOutputBoxes @ heldResult ],
+            "Output",
+            CellLabel -> outLabel,
+            FontColor -> Black
+        ];
+
+        nb = Notebook[
+            { Cell @ CellGroupData[ { inputCell, outputCell }, Open ] },
+            CellLabelAutoDelete -> False
+        ];
+
+        (* Hash-based cloud path *)
+        hash = ConfirmBy[ Hash[ { code, heldResult }, "Expression", "HexString" ], StringQ, "Hash" ];
+
+        target = ConfirmMatch[
+            FileNameJoin @ {
+                CloudObject[ $deployedNotebookRoot, Permissions -> { "All" -> { "Read", "Interact" } } ],
+                "WolframLanguageEvaluator",
+                StringTake[ hash, 3 ],
+                hash <> ".nb"
+            },
+            _CloudObject,
+            "Target"
+        ];
+
+        deployed = ConfirmMatch[
+            CloudDeploy[
+                nb,
+                target,
+                AppearanceElements -> None,
+                AutoRemove         -> True,
+                IconRules          -> { },
+                Permissions        -> { "All" -> { "Read", "Interact" } }
+            ],
+            _CloudObject,
+            "CloudDeploy"
+        ];
+
+        notebookUrl = ConfirmBy[ First @ deployed, StringQ, "NotebookURL" ];
+
+        <| "Content" -> textContent, "_meta" -> <| "notebookUrl" -> notebookUrl |> |>
+    ],
+    throwInternalFailure
+];
+
+makeEvaluatorUIResult // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*toOutputBoxes*)
+toOutputBoxes // beginDefinition;
+
+toOutputBoxes[ (HoldForm|HoldCompleteForm)[ expr_ ] ] :=
+    Block[ { $OutputSizeLimit = $outputSizeLimit },
+        cb`CachedBoxes @ OutputSizeLimit`PrePrint @ expr
+    ];
+
+toOutputBoxes // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*toContentList*)
+toContentList // beginDefinition;
+toContentList[ KeyValuePattern[ "Content" -> items_List ] ] := items;
+toContentList[ items_List ] := items;
+toContentList[ str_String ] := { <| "type" -> "text", "text" -> str |> };
+toContentList // endDefinition;
+
+(* ::**************************************************************************************************************:: *)
+(* ::Subsection::Closed:: *)
+(*makeFancyCharacters*)
+makeFancyCharacters // beginDefinition;
+makeFancyCharacters[ boxes_ ] := boxes /. $fancyCharRules;
+makeFancyCharacters // endDefinition;
+
+$fancyCharRules := $fancyCharRules = Dispatch @ {
+    (* Extracted from CurrentValue[{StyleHints, "OperatorRenderings"}] *)
+    "|->" -> "\[Function]",
+    "->" -> "\[Rule]",
+    ":>" -> "\[RuleDelayed]",
+    "<=" -> "\[LessEqual]",
+    ">=" -> "\[GreaterEqual]",
+    "!=" -> "\[NotEqual]",
+    "==" -> "\[Equal]",
+    "<->" -> "\[TwoWayRule]",
+    "[[" -> "\[LeftDoubleBracket]",
+    "]]" -> "\[RightDoubleBracket]",
+    "<|" -> "\[LeftAssociation]",
+    "|>" -> "\[RightAssociation]",
+    "**" -> "\:29bb",
+    RowBox @ { expr_, "[", RowBox @ { "[", part__, "]" }, "]" } :>
+        RowBox @ { expr, "\[LeftDoubleBracket]", part, "\[RightDoubleBracket]" }
+};
 
 (* ::**************************************************************************************************************:: *)
 (* ::Section::Closed:: *)
